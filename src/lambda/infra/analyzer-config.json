@@ -1,0 +1,119 @@
+{
+  "$schema": "analyzer-config-schema",
+  "version": "1.0.0",
+  "description": "Single source of truth for analyzer infrastructure configuration. Consumed by both CFT and TF templates via GH Actions sync.",
+  "defaults": {
+    "runtime": "python3.12",
+    "memoryMB": 256,
+    "timeoutSeconds": 300,
+    "retryAttempts": 2,
+    "retryIntervalSeconds": 3,
+    "retryBackoffRate": 2
+  },
+  "analyzers": {
+    "cloudtrail": {
+      "functionName": "ConnectOpsReview-CloudTrailAnalyzer",
+      "handler": "cloudtrail_analyzer.lambda_handler",
+      "description": "CloudTrail event analysis — API throttling, error patterns, audit trail",
+      "memoryMB": 512,
+      "timeoutSeconds": 900,
+      "maxAnalysisSeconds": 840,
+      "stepFunctionsTimeoutSeconds": 900,
+      "retryAttempts": 1,
+      "iamPolicyFile": "iam-policies/cloudtrail-analyzer.json",
+      "environmentVariables": {}
+    },
+    "security": {
+      "functionName": "ConnectOpsReview-SecurityAnalyzer",
+      "handler": "security_analyzer.lambda_handler",
+      "description": "Security posture — encryption, access controls, logging, compliance",
+      "memoryMB": 256,
+      "timeoutSeconds": 300,
+      "stepFunctionsTimeoutSeconds": 300,
+      "iamPolicyFile": "iam-policies/security-analyzer.json",
+      "environmentVariables": {}
+    },
+    "resilience": {
+      "functionName": "ConnectOpsReview-ResilienceAnalyzer",
+      "handler": "resilience_analyzer.lambda_handler",
+      "description": "Resilience — multi-region, DR readiness, redundancy checks",
+      "memoryMB": 256,
+      "timeoutSeconds": 300,
+      "stepFunctionsTimeoutSeconds": 300,
+      "iamPolicyFile": "iam-policies/resilience-analyzer.json",
+      "environmentVariables": {}
+    },
+    "operational_excellence": {
+      "functionName": "ConnectOpsReview-OpExAnalyzer",
+      "handler": "opex_analyzer.lambda_handler",
+      "description": "Operational excellence — contact flows, configuration hygiene, best practices",
+      "memoryMB": 256,
+      "timeoutSeconds": 300,
+      "stepFunctionsTimeoutSeconds": 300,
+      "iamPolicyFile": "iam-policies/opex-analyzer.json",
+      "environmentVariables": {}
+    },
+    "capacity": {
+      "functionName": "ConnectOpsReview-CapacityAnalyzer",
+      "handler": "capacity_analyzer.lambda_handler",
+      "description": "Capacity analysis — service quotas, utilization, growth projections",
+      "memoryMB": 256,
+      "timeoutSeconds": 600,
+      "stepFunctionsTimeoutSeconds": 600,
+      "iamPolicyFile": "iam-policies/capacity-analyzer.json",
+      "environmentVariables": {}
+    },
+    "observability": {
+      "functionName": "ConnectOpsReview-ObservabilityAnalyzer",
+      "handler": "observability_analyzer.lambda_handler",
+      "description": "Observability — CloudWatch metrics, alarms, log groups, dashboards",
+      "memoryMB": 256,
+      "timeoutSeconds": 600,
+      "stepFunctionsTimeoutSeconds": 600,
+      "iamPolicyFile": "iam-policies/observability-analyzer.json",
+      "environmentVariables": {}
+    },
+    "cost": {
+      "functionName": "ConnectOpsReview-CostAnalyzer",
+      "handler": "cost_analyzer.lambda_handler",
+      "description": "Cost considerations — telephony, usage patterns, optimization opportunities",
+      "memoryMB": 256,
+      "timeoutSeconds": 300,
+      "stepFunctionsTimeoutSeconds": 300,
+      "iamPolicyFile": "iam-policies/cost-analyzer.json",
+      "environmentVariables": {}
+    },
+    "ai": {
+      "functionName": "ConnectOpsReview-AIAnalyzer",
+      "handler": "ai_analyzer.lambda_handler",
+      "description": "AI features analysis — Q Connect agents, prompts, guardrails, knowledge bases",
+      "memoryMB": 256,
+      "timeoutSeconds": 600,
+      "stepFunctionsTimeoutSeconds": 600,
+      "iamPolicyFile": "iam-policies/ai-analyzer.json",
+      "environmentVariables": {}
+    }
+  },
+  "reportGenerator": {
+    "functionName": "ConnectOpsReview-ReportGenerator",
+    "handler": "report_generator.lambda_handler",
+    "description": "Assembles HTML report from analyzer results",
+    "memoryMB": 1024,
+    "timeoutSeconds": 300,
+    "stepFunctionsTimeoutSeconds": 300,
+    "iamPolicyFile": "iam-policies/report-generator.json",
+    "environmentVariables": {
+      "S3_REPORTING_BUCKET": "${S3ReportingBucket}"
+    }
+  },
+  "stateMachine": {
+    "name": "ConnectOpsReview-Orchestrator",
+    "definitionFile": "state-machine-definition.asl.json",
+    "executionTimeoutSeconds": 1200,
+    "loggingLevel": "ERROR"
+  },
+  "eventBridge": {
+    "scheduleExpression": "rate(7 days)",
+    "description": "Weekly Connect Ops Review execution"
+  }
+}

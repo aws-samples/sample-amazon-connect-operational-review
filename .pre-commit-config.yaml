@@ -1,0 +1,31 @@
+# Pre-commit hooks — parity with the GitLab `python_lint` job.
+#
+# ┌──────────────────────────────────────────────────────────────────────┐
+# │ Version pin: ruff-pre-commit rev MUST match `.gitlab-ci.yml`'s       │
+# │ `pip install ruff==<X.Y.Z>` line. Bumping one without the other      │
+# │ silently reopens the "passes locally, fails in CI" gap this config   │
+# │ was created to close.                                                │
+# └──────────────────────────────────────────────────────────────────────┘
+#
+# One-time developer setup (from repo root):
+#   pip install pre-commit
+#   pre-commit install
+#
+# From that point on every `git commit` runs `ruff format` (auto-fix)
+# and `ruff check --fix` on any staged Python files under `src/lambda/`.
+# If a hook re-writes a file, the commit is aborted and the developer
+# just needs to `git add` the corrected files and re-commit — the
+# standard pre-commit workflow.
+#
+# To skip hooks in an emergency:  git commit --no-verify
+# CI is still the source of truth; `--no-verify` only defers the check.
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.2  # keep in sync with .gitlab-ci.yml
+    hooks:
+      - id: ruff-format
+        files: ^src/lambda/.*\.py$
+      - id: ruff
+        args: [--fix]
+        files: ^src/lambda/.*\.py$

@@ -1,0 +1,59 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "QConnectReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "qconnect:ListAIAgents",
+        "qconnect:GetAIAgent",
+        "qconnect:ListAIPrompts",
+        "qconnect:GetAIPrompt",
+        "qconnect:ListAIGuardrails",
+        "qconnect:GetAIGuardrail",
+        "qconnect:GetAssistant",
+        "qconnect:ListAssistants",
+        "qconnect:ListKnowledgeBases",
+        "qconnect:GetKnowledgeBase",
+        "qconnect:ListContents",
+        "qconnect:ListAssistantAssociations"
+      ],
+      "Resource": "arn:aws:wisdom:*:*:assistant/*"
+    },
+    {
+      "Sid": "ConnectIntegrations",
+      "Effect": "Allow",
+      "Action": [
+        "connect:ListIntegrationAssociations",
+        "connect:ListSecurityProfiles",
+        "connect:ListSecurityProfileApplications"
+      ],
+      "Resource": "arn:aws:connect:*:*:instance/*"
+    },
+    {
+      "Sid": "CloudWatchLogsDelivery",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeDeliveries",
+        "logs:DescribeDeliverySources"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "S3Persistence",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject"
+      ],
+      "Resource": "arn:aws:s3:::${S3ReportingBucket}/data/ai/*"
+    },
+    {
+      "Sid": "S3ReadSharedData",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": "arn:aws:s3:::${S3ReportingBucket}/data/*"
+    }
+  ]
+}

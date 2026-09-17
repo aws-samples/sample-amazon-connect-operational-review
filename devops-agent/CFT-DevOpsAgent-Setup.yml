@@ -1,0 +1,400 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  AWS DevOps Agent Setup for Amazon Connect Operational Review.
+  Creates an Agent Space, IAM roles for agent access and operator web app,
+  and associates the primary AWS account for resource discovery and investigation.
+
+# ============================================================================
+# PARAMETERS
+# ============================================================================
+Parameters:
+  AgentSpaceName:
+    Type: String
+    Default: amazon-connect-ops-review
+    Description: Name for the DevOps Agent Space
+    MinLength: 1
+    MaxLength: 255
+
+  AgentSpaceDescription:
+    Type: String
+    Default: >-
+      Agent Space for Amazon Connect operational health monitoring, incident
+      investigation, and proactive recommendations based on automated operational
+      review findings across Security, Resilience, Operational Excellence,
+      Capacity Analysis, Observability, Cost, and AI Agents.
+    Description: Description of the Agent Space purpose
+    MaxLength: 1000
+
+  AgentLocale:
+    Type: String
+    Default: en-US
+    AllowedValues:
+      - en-US
+      - en-GB
+      - fr-FR
+      - de-DE
+      - it-IT
+      - ja-JP
+      - ko-KR
+      - pt-BR
+      - es-419
+      - zh-CN
+      - zh-TW
+      - id-ID
+      - tr-TR
+      - ar-SA
+      - th-TH
+      - vi-VN
+    Description: Language for agent responses
+
+  ConnectInstanceArn:
+    Type: String
+    Description: ARN of the Amazon Connect instance to monitor (e.g., arn:aws:connect:us-east-1:123456789012:instance/abc-123)
+    AllowedPattern: '^arn:aws:connect:[a-z0-9-]+:\d{12}:instance/[a-z0-9-]+$'
+
+  EnableKMSEncryption:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable customer-managed KMS key for Agent Space data encryption
+
+  EnableGitHubIntegration:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: >-
+      Enable GitHub integration (requires manual OAuth setup in console after stack creation)
+
+# ============================================================================
+# CONDITIONS
+# ============================================================================
+Conditions:
+  CreateKMSKey: !Equals [!Ref EnableKMSEncryption, 'true']
+  HasGitHub: !Equals [!Ref EnableGitHubIntegration, 'true']
+
+# ============================================================================
+# RESOURCES
+# ============================================================================
+Resources:
+
+  # --------------------------------------------------------------------------
+  # KMS Key for Agent Space Encryption (Optional)
+  # --------------------------------------------------------------------------
+  DevOpsAgentKMSKey:
+    Type: AWS::KMS::Key
+    Condition: CreateKMSKey
+    Properties:
+      Description: Customer-managed KMS key for AWS DevOps Agent Space data encryption
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowKeyAdministration
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: AllowDevOpsAgentAccess
+            Effect: Allow
+            Principal:
+              Service: aidevops.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:GenerateDataKey
+              - kms:DescribeKey
+            Resource: '*'
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Tags:
+        - Key: Service
+          Value: DevOpsAgent
+        - Key: Purpose
+          Value: AmazonConnectOpsReview
+
+  DevOpsAgentKMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Condition: CreateKMSKey
+    Properties:
+      AliasName: alias/devops-agent-connect-ops-review
+      TargetKeyId: !Ref DevOpsAgentKMSKey
+
+  # --------------------------------------------------------------------------
+  # IAM Role - DevOps Agent Resource Access (Primary Account)
+  # --------------------------------------------------------------------------
+  DevOpsAgentResourceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'DevOpsAgent-${AgentSpaceName}-ResourceAccess'
+      Description: >-
+        IAM role granting AWS DevOps Agent access to investigate Amazon Connect
+        resources, CloudWatch metrics, Service Quotas, and related infrastructure.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: aidevops.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: ConnectReadAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ConnectDescribeList
+                Effect: Allow
+                Action:
+                  - connect:Describe*
+                  - connect:List*
+                  - connect:GetCurrentMetricData
+                  - connect:GetMetricDataV2
+                  - connect:SearchContactFlowModules
+                  - connect:SearchContactFlows
+                Resource: '*'
+              - Sid: ConnectCasesProfilesAppInt
+                Effect: Allow
+                Action:
+                  - cases:List*
+                  - cases:GetDomain
+                  - cases:BatchGetField
+                  - profile:List*
+                  - profile:GetDomain
+                  - app-integrations:List*
+                  - app-integrations:GetDataIntegration
+                  - app-integrations:GetEventIntegration
+                Resource: '*'
+              - Sid: ConnectAIAgents
+                Effect: Allow
+                Action:
+                  - wisdom:List*
+                  - wisdom:Get*
+                Resource: '*'
+
+        - PolicyName: ObservabilityAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: CloudWatchAccess
+                Effect: Allow
+                Action:
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:GetMetricData
+                  - cloudwatch:GetMetricStatistics
+                  - cloudwatch:ListMetrics
+                  - cloudwatch:ListDashboards
+                  - cloudwatch:GetDashboard
+                Resource: '*'
+              - Sid: CloudWatchLogsAccess
+                Effect: Allow
+                Action:
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                  - logs:GetLogEvents
+                  - logs:StartQuery
+                  - logs:GetQueryResults
+                  - logs:FilterLogEvents
+                Resource: '*'
+              - Sid: CloudTrailAccess
+                Effect: Allow
+                Action:
+                  - cloudtrail:LookupEvents
+                  - cloudtrail:GetTrailStatus
+                Resource: '*'
+
+        - PolicyName: InfrastructureDiscovery
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: CloudFormationAccess
+                Effect: Allow
+                Action:
+                  - cloudformation:DescribeStacks
+                  - cloudformation:ListStacks
+                  - cloudformation:ListStackResources
+                  - cloudformation:GetTemplate
+                Resource: '*'
+              - Sid: ServiceQuotasAccess
+                Effect: Allow
+                Action:
+                  - servicequotas:GetServiceQuota
+                  - servicequotas:ListServiceQuotas
+                  - servicequotas:ListRequestedServiceQuotaChangeHistory
+                Resource: '*'
+              - Sid: StreamingInfraAccess
+                Effect: Allow
+                Action:
+                  - kinesis:DescribeStream
+                  - kinesis:ListStreams
+                  - kinesis:ListTagsForStream
+                  - kinesisvideo:DescribeStream
+                  - kinesisvideo:ListStreams
+                  - firehose:DescribeDeliveryStream
+                  - firehose:ListDeliveryStreams
+                Resource: '*'
+              - Sid: EncryptionAccess
+                Effect: Allow
+                Action:
+                  - kms:DescribeKey
+                  - kms:ListKeys
+                  - kms:ListAliases
+                  - kms:GetKeyPolicy
+                  - kms:GetKeyRotationStatus
+                Resource: '*'
+              - Sid: StorageAccess
+                Effect: Allow
+                Action:
+                  - s3:GetBucketEncryption
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                  - s3:GetBucketTagging
+                Resource: '*'
+              - Sid: LambdaAccess
+                Effect: Allow
+                Action:
+                  - lambda:GetFunction
+                  - lambda:ListFunctions
+                  - lambda:GetFunctionConfiguration
+                Resource: '*'
+              - Sid: ResourceExplorerAccess
+                Effect: Allow
+                Action:
+                  - resource-explorer-2:Search
+                  - resource-explorer-2:ListIndexes
+                Resource: '*'
+      Tags:
+        - Key: Service
+          Value: DevOpsAgent
+        - Key: Purpose
+          Value: AmazonConnectOpsReview
+
+  # --------------------------------------------------------------------------
+  # IAM Role - Operator Web App Access
+  # --------------------------------------------------------------------------
+  DevOpsAgentOperatorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'DevOpsAgent-${AgentSpaceName}-OperatorApp'
+      Description: >-
+        IAM role for accessing the AWS DevOps Agent Operator Web App.
+        Users assume this role to interact with the agent for investigations
+        and recommendations.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: sts:AssumeRole
+            Condition:
+              StringLike:
+                aws:PrincipalArn: !Sub 'arn:aws:iam::${AWS::AccountId}:*'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AIDevOpsAgentFullAccess
+      Tags:
+        - Key: Service
+          Value: DevOpsAgent
+        - Key: Purpose
+          Value: AmazonConnectOpsReview
+
+  # --------------------------------------------------------------------------
+  # DevOps Agent Space
+  # --------------------------------------------------------------------------
+  DevOpsAgentSpace:
+    Type: AWS::DevOpsAgent::AgentSpace
+    DependsOn:
+      - DevOpsAgentResourceRole
+      - DevOpsAgentOperatorRole
+    Properties:
+      Name: !Ref AgentSpaceName
+      Description: !Ref AgentSpaceDescription
+      Locale: !Ref AgentLocale
+      KmsKeyArn: !If
+        - CreateKMSKey
+        - !GetAtt DevOpsAgentKMSKey.Arn
+        - !Ref AWS::NoValue
+      OperatorApp:
+        Iam:
+          OperatorAppRoleArn: !GetAtt DevOpsAgentOperatorRole.Arn
+      Tags:
+        - Key: Service
+          Value: DevOpsAgent
+        - Key: Purpose
+          Value: AmazonConnectOpsReview
+        - Key: ConnectInstanceArn
+          Value: !Ref ConnectInstanceArn
+
+  # --------------------------------------------------------------------------
+  # Association - Primary AWS Account (Resource Discovery)
+  # --------------------------------------------------------------------------
+  PrimaryAccountAssociation:
+    Type: AWS::DevOpsAgent::Association
+    DependsOn: DevOpsAgentSpace
+    Properties:
+      AgentSpaceId: !Ref DevOpsAgentSpace
+      ServiceId: aws
+      Configuration:
+        SourceAws:
+          AccountId: !Ref AWS::AccountId
+          AccountType: monitor
+          AssumableRoleArn: !GetAtt DevOpsAgentResourceRole.Arn
+          Tags:
+            - Key: Service
+              Value: AmazonConnect
+            - Key: ManagedBy
+              Value: DevOpsAgent-OpsReview
+
+# ============================================================================
+# OUTPUTS
+# ============================================================================
+Outputs:
+  AgentSpaceId:
+    Description: The unique identifier of the DevOps Agent Space
+    Value: !Ref DevOpsAgentSpace
+    Export:
+      Name: !Sub '${AWS::StackName}-AgentSpaceId'
+
+  AgentSpaceArn:
+    Description: The ARN of the DevOps Agent Space
+    Value: !GetAtt DevOpsAgentSpace.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-AgentSpaceArn'
+
+  ResourceRoleArn:
+    Description: IAM Role ARN for DevOps Agent resource access
+    Value: !GetAtt DevOpsAgentResourceRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ResourceRoleArn'
+
+  OperatorRoleArn:
+    Description: IAM Role ARN for Operator Web App access
+    Value: !GetAtt DevOpsAgentOperatorRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-OperatorRoleArn'
+
+  KMSKeyArn:
+    Condition: CreateKMSKey
+    Description: KMS Key ARN for Agent Space encryption
+    Value: !GetAtt DevOpsAgentKMSKey.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-KMSKeyArn'
+
+  PrimaryAssociationId:
+    Description: Association ID for the primary AWS account
+    Value: !Ref PrimaryAccountAssociation
+
+  NextSteps:
+    Description: Post-deployment steps
+    Value: >-
+      Stack deployed successfully. Next steps:
+      1) Open the DevOps Agent console and click 'Operator access' to verify the Web App.
+      2) Navigate to Skills page and upload the 3 skill ZIP files from the skills/ directory.
+      3) Wait for topology discovery to complete (5-10 minutes).
+      4) Test the agent with: 'Evaluate the security posture of our Amazon Connect instance'.

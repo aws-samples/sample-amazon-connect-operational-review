@@ -1,0 +1,53 @@
+# Copy this file to terraform.tfvars and fill in your values.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# Then run:  terraform init && terraform plan
+
+# REQUIRED — Amazon Connect instance ARN
+# Format: arn:aws:connect:<region>:<account-id>:instance/<instance-id>
+connect_instance_arn = "arn:aws:connect:us-east-1:123456789012:instance/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+# REQUIRED — Existing S3 bucket name for operational review reports
+s3_reporting_bucket = "my-connect-ops-review-reports"
+
+# OPTIONAL — AWS region (default: us-east-1)
+# aws_region = "us-east-1"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OPTIONAL — Scheduling
+# ─────────────────────────────────────────────────────────────────────────────
+
+# EventBridge schedule expression (default: rate(7 days))
+# review_schedule_expression = "rate(7 days)"
+
+# IANA timezone for the schedule (default: UTC)
+# review_schedule_timezone = "America/New_York"
+
+# Flexible window in minutes — schedule fires randomly within this window (0 = exact)
+# review_flexible_window_minutes = 30
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OPTIONAL — Features
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Create Glue database + tables for Athena querying of analyzer results
+# enable_glue_catalog = true
+
+# DevOps Agent Agent Space ID for per-check investigation button
+# Find it via: aws devops-agent list-agent-spaces --region us-east-1
+# devops_agent_agent_space_id = "as-xxxxxxxx"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ADVANCED — Only change the settings below on the direction of your AWS team.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# CloudWatch Log retention in days (default: 30)
+# log_retention_days = 30
+
+# Tags applied to all resources
+# tags = {
+#   Project     = "AmazonConnectOperationalReview"
+#   Environment = "production"
+#   ManagedBy   = "terraform"
+# }

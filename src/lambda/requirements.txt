@@ -1,0 +1,2 @@
+# Lambda runtime dependencies (provided by AWS Lambda runtime, listed for local dev)
+boto3>=1.35.0

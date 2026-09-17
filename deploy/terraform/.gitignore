@@ -1,0 +1,40 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+tfplan
+*.tfplan
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+terraform.tfvars
+
+# Lambda packages (generated during apply)
+lambda_packages/*.zip
+
+# Lambda layers zip (generated at plan time)
+lambda_layers/*.zip
+
+# Release packages (generated locally or by CI)
+*.tar.gz
+
+# Checked-out source repo (used by CI/CD)
+_lambda_source/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+.kiro/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
