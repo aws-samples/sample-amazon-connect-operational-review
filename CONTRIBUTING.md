@@ -1,58 +1,134 @@
 # Contributing Guidelines
 
-Thank you for your interest in contributing to our project. Whether it's a bug report, new feature, correction, or additional
-documentation, we greatly value feedback and contributions from our community.
+Thank you for your interest in contributing to this project. Whether it's a bug report, new feature, correction, or additional documentation, we greatly value feedback and contributions from our community.
 
-Please read through this document before submitting any issues or pull requests to ensure we have all the necessary
-information to effectively respond to your bug report or contribution.
+Please read through this document before submitting any issues or pull requests to ensure we have all the necessary information to effectively respond to your bug report or contribution.
 
+> **Audience:** For developers contributing to this repo. For deployment usage, see [`deploy/cloudformation/README.md`](deploy/cloudformation/README.md) or [`deploy/terraform/README.md`](deploy/terraform/README.md).
 
 ## Reporting Bugs/Feature Requests
 
 We welcome you to use the GitHub issue tracker to report bugs or suggest features.
 
-When filing an issue, please check existing open, or recently closed, issues to make sure somebody else hasn't already
-reported the issue. Please try to include as much information as you can. Details like these are incredibly useful:
+When filing an issue, please check existing open, or recently closed, issues to make sure somebody else hasn't already reported the issue. Please try to include as much information as you can. Details like the following are incredibly useful:
 
-* A reproducible test case or series of steps
-* The version of our code being used
-* Any modifications you've made relevant to the bug
-* Anything unusual about your environment or deployment
-
+- A reproducible test case or series of steps
+- The version of the code being used
+- Any modifications you've made relevant to the bug
+- Anything unusual about your environment or deployment
 
 ## Contributing via Pull Requests
+
 Contributions via pull requests are much appreciated. Before sending us a pull request, please ensure that:
 
-1. You are working against the latest source on the *main* branch.
+1. You are working against the latest source on the `main` branch.
 2. You check existing open, and recently merged, pull requests to make sure someone else hasn't addressed the problem already.
-3. You open an issue to discuss any significant work - we would hate for your time to be wasted.
+3. You open an issue to discuss any significant work — we would hate for your time to be wasted.
 
 To send us a pull request, please:
 
 1. Fork the repository.
-2. Modify the source; please focus on the specific change you are contributing. If you also reformat all the code, it will be hard for us to focus on your change.
-3. Ensure local tests pass.
-4. Commit to your fork using clear commit messages.
-5. Send us a pull request, answering any default questions in the pull request interface.
-6. Pay attention to any automated CI failures reported in the pull request, and stay involved in the conversation.
+2. Modify the source; please focus on the specific change you are contributing. Reformatting all the code makes it hard to focus on your change.
+3. Make changes in `src/lambda/` (the single source of truth for all Lambda code) and sync to the deploy directories (see below).
+4. Ensure local checks (lint + tests) pass.
+5. Commit to your fork using clear commit messages.
+6. Send us a pull request, answering any default questions in the pull request interface.
+7. Pay attention to any automated CI failures reported in the pull request, and stay involved in the conversation.
 
-GitHub provides additional document on [forking a repository](https://help.github.com/articles/fork-a-repo/) and
-[creating a pull request](https://help.github.com/articles/creating-a-pull-request/).
+GitHub provides additional documentation on [forking a repository](https://help.github.com/articles/fork-a-repo/) and [creating a pull request](https://help.github.com/articles/creating-a-pull-request/).
 
+## The Sync Requirement
 
-## Finding contributions to work on
-Looking at the existing issues is a great way to find something to contribute on. As our projects, by default, use the default GitHub issue labels (enhancement/bug/duplicate/help wanted/invalid/question/wontfix), looking at any 'help wanted' issues is a great place to start.
+Lambda code lives in `src/lambda/` (the single source of truth). After editing any file there, sync to both deploy directories so the CloudFormation template and Terraform module stay in step:
 
+```bash
+# Sync to Terraform (simple copy)
+cp src/lambda/*.py deploy/terraform/lambda_packages/
+
+# Sync to CloudFormation (embeds code into the template)
+for f in prepare_context report_generator security_analyzer resilience_analyzer \
+         opex_analyzer capacity_analyzer observability_analyzer cost_analyzer \
+         cloudtrail_analyzer ai_analyzer; do
+  python3 deploy/cloudformation/scripts/update_cft_lambda.py \
+    --lambda-source "src/lambda/${f}.py" \
+    --cft-template deploy/cloudformation/CFT-AmazonConnectOperationsReview.yml \
+    --no-backup
+done
+
+# If you changed analyzer_common.py or graceful_timeout.py:
+python3 deploy/cloudformation/scripts/sync_shared_utils_to_cft.py \
+  --source-dir src/lambda \
+  --cft-template deploy/cloudformation/CFT-AmazonConnectOperationsReview.yml
+```
+
+Commit the source and synced artifacts together.
+
+## Local Checks
+
+Before opening a pull request, run the same checks CI runs:
+
+```bash
+cd src/lambda
+
+# Install runtime + dev/test dependencies
+pip install -r requirements.txt
+pip install pytest pytest-cov hypothesis pyyaml ruff
+
+# Lint
+ruff check .
+ruff format --check .
+
+# Tests
+pytest tests/ --ignore=tests/test_cft_properties.py
+```
+
+### Optional: pre-commit hooks
+
+If you use [pre-commit](https://pre-commit.com), install the hooks so `git commit` runs the same `ruff format` / `ruff check` the CI lint job runs:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+The ruff version is pinned in `.pre-commit-config.yaml`.
+
+## Code Style
+
+- Python 3.12 — use modern syntax (type hints, f-strings)
+- Formatting enforced by `ruff format`, linting by `ruff check`
+- All analyzers must return the standardized `AnalyzerResult` schema
+- New checks should respect the graceful timeout pattern
+
+### What NOT to Edit Directly
+
+- `deploy/terraform/lambda_packages/*.py` — these are synced copies, not source
+- `deploy/cloudformation/CFT-AmazonConnectOperationsReview.yml` `ZipFile` blocks — generated by the sync scripts
+- Edit `src/lambda/` instead and sync
+
+## Commit Messages
+
+Use [Conventional Commits](https://www.conventionalcommits.org/):
+
+```text
+feat(security): Add AI domain encryption check
+fix(cloudtrail): Handle throttling on large accounts
+docs: Update architecture diagram for parallel flow
+```
+
+## Finding Contributions to Work On
+
+Looking at the existing issues is a great way to find something to contribute on. Issues labeled `help wanted` or `good first issue` are a great place to start.
 
 ## Code of Conduct
+
 This project has adopted the [Amazon Open Source Code of Conduct](https://aws.github.io/code-of-conduct).
 For more information see the [Code of Conduct FAQ](https://aws.github.io/code-of-conduct-faq) or contact
 opensource-codeofconduct@amazon.com with any additional questions or comments.
 
+## Security Issue Notifications
 
-## Security issue notifications
-If you discover a potential security issue in this project we ask that you notify AWS/Amazon Security via our [vulnerability reporting page](http://aws.amazon.com/security/vulnerability-reporting/). Please do **not** create a public github issue.
-
+If you discover a potential security issue in this project we ask that you notify AWS/Amazon Security via our [vulnerability reporting page](http://aws.amazon.com/security/vulnerability-reporting/). Please do **not** create a public GitHub issue.
 
 ## Licensing
 

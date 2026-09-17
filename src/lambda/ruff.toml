@@ -1,0 +1,10 @@
+[lint]
+select = ["F", "E"]
+ignore = [
+    "E402",  # Module-level import not at top (deferred imports for circular dependency avoidance)
+    "E501",  # Line too long (HTML templates in report_generator)
+    "F841",  # Unused variable (intentional in some error handling patterns)
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["F401", "F811"]  # Test files import for mocking/fixtures

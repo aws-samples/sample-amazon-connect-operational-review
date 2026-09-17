@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Python lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install ruff==0.16.2
+      - name: Lint
+        run: ruff check src/lambda/
+      - name: Format check
+        run: ruff format --check src/lambda/
+
+  test:
+    name: Lambda unit tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          pip install -r src/lambda/requirements.txt
+          pip install pytest pytest-cov hypothesis pyyaml
+      - name: Run tests
+        working-directory: src/lambda
+        run: pytest tests/ --ignore=tests/test_cft_properties.py --cov=. --cov-report=term-missing
+
+  cfn-lint:
+    name: CloudFormation lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install cfn-lint
+        run: pip install 'cfn-lint<2'
+      - name: Lint template
+        run: cfn-lint -i W3037 -i W8001 -- deploy/cloudformation/CFT-AmazonConnectOperationsReview.yml
+
+  terraform-validate:
+    name: Terraform validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.8.5"
+      - name: Validate
+        working-directory: deploy/terraform
+        run: |
+          terraform init -backend=false
+          terraform validate
+          terraform fmt -check -recursive

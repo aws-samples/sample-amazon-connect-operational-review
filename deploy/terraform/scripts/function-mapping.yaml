@@ -1,0 +1,61 @@
+# Function-to-resource mapping for Terraform
+#
+# The update script reads this to know which source file to copy into
+# lambda_packages/ for Terraform's archive_file data source.
+#
+# This file mirrors the CFT repo's function-mapping.yaml with an added
+# tf_resource field.  Keep both files in sync when adding new functions.
+#
+# shared_layer: source directory for the Lambda Layer (future use)
+# functions:    list of source_file → resource mappings
+
+shared_layer:
+  source_dir: shared
+  cft_resource: SharedUtilsLayer
+  tf_resource: aws_lambda_layer_version.shared_utils
+
+functions:
+  # Parallel orchestration components
+  - source: prepare_context.py
+    cft_resource: PrepareContextFunction
+    tf_resource: aws_lambda_function.prepare_context
+
+  - source: cloudtrail_analyzer.py
+    cft_resource: CloudTrailAnalyzerFunction
+    tf_resource: aws_lambda_function.cloudtrail_analyzer_parallel
+
+  - source: security_analyzer.py
+    cft_resource: SecurityAnalyzerFunction
+    tf_resource: aws_lambda_function.security_analyzer
+
+  - source: resilience_analyzer.py
+    cft_resource: ResilienceAnalyzerFunction
+    tf_resource: aws_lambda_function.resilience_analyzer
+
+  - source: opex_analyzer.py
+    cft_resource: OpExAnalyzerFunction
+    tf_resource: aws_lambda_function.opex_analyzer
+
+  - source: capacity_analyzer.py
+    cft_resource: CapacityAnalyzerFunction
+    tf_resource: aws_lambda_function.capacity_analyzer
+
+  - source: observability_analyzer.py
+    cft_resource: ObservabilityAnalyzerFunction
+    tf_resource: aws_lambda_function.observability_analyzer
+
+  - source: cost_analyzer.py
+    cft_resource: CostAnalyzerFunction
+    tf_resource: aws_lambda_function.cost_analyzer
+
+  - source: ai_analyzer.py
+    cft_resource: AIAnalyzerFunction
+    tf_resource: aws_lambda_function.ai_analyzer
+
+  - source: report_generator.py
+    cft_resource: ReportGeneratorFunction
+    tf_resource: aws_lambda_function.report_generator
+
+  - source: delete_json_data.py
+    cft_resource: DeleteJsonDataFunction
+    tf_resource: aws_lambda_function.delete_json_data

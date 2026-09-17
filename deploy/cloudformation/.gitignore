@@ -1,0 +1,21 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+.kiro/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+
+# Checked-out source repo (used by CI/CD)
+_lambda_source/
+
+# Release packages
+*.tar.gz
+*.zip

@@ -1,0 +1,5 @@
+configure_rules:
+  E3012:
+    strict: false
+ignore_checks:
+  - W3037  # IAM action DB stale for newer services (qconnect, cases:ListCases)

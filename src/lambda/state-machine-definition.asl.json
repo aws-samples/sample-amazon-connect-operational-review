@@ -1,0 +1,778 @@
+{
+  "Comment": "Connect Ops Review — Parallel Analyzer Orchestration. Each analyzer runs as an independent Lambda with its own 15-minute timeout ceiling.",
+  "QueryLanguage": "JSONPath",
+  "StartAt": "PrepareContext",
+  "TimeoutSeconds": 1200,
+  "States": {
+    "PrepareContext": {
+      "Type": "Task",
+      "Comment": "Read SSM config, merge with defaults, build ExecutionContext",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${PrepareContextFunctionArn}",
+        "Payload": {
+          "rawInput.$": "$",
+          "executionStartTime.$": "$$.Execution.StartTime",
+          "executionName.$": "$$.Execution.Name"
+        }
+      },
+      "ResultSelector": {
+        "reviewId.$": "$.Payload.reviewId",
+        "instanceArn.$": "$.Payload.instanceArn",
+        "instanceId.$": "$.Payload.instanceId",
+        "accountId.$": "$.Payload.accountId",
+        "awsRegion.$": "$.Payload.awsRegion",
+        "daysBack.$": "$.Payload.daysBack",
+        "s3ReportingBucket.$": "$.Payload.s3ReportingBucket",
+        "generateHtmlReport.$": "$.Payload.generateHtmlReport",
+        "retainJsonData.$": "$.Payload.retainJsonData",
+        "enabledAnalyzers.$": "$.Payload.enabledAnalyzers",
+        "analyzerTimeouts.$": "$.Payload.analyzerTimeouts"
+      },
+      "ResultPath": "$",
+      "TimeoutSeconds": 30,
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Next": "RunAnalyzersParallel"
+    },
+
+    "RunAnalyzersParallel": {
+      "Type": "Parallel",
+      "Comment": "Fan-out: each branch checks enabledAnalyzers flag, then invokes its Lambda independently. A slow CloudTrail (15 min) does not block fast analyzers.",
+      "Branches": [
+        {
+          "StartAt": "CheckSecurityEnabled",
+          "States": {
+            "CheckSecurityEnabled": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.enabledAnalyzers.security",
+                  "BooleanEquals": false,
+                  "Next": "SecuritySkipped"
+                }
+              ],
+              "Default": "SecurityAnalyzer"
+            },
+            "SecuritySkipped": {
+              "Type": "Pass",
+              "Parameters": {
+                "analyzerResult": {
+                  "componentType": "security",
+                  "status": "skipped"
+                }
+              },
+              "End": true
+            },
+            "SecurityAnalyzer": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${SecurityAnalyzerFunctionArn}",
+                "Payload": {
+                  "reviewId.$": "$.reviewId",
+                  "instanceId.$": "$.instanceId",
+                  "instanceArn.$": "$.instanceArn",
+                  "accountId.$": "$.accountId",
+                  "awsRegion.$": "$.awsRegion",
+                  "daysBack.$": "$.daysBack",
+                  "s3ReportingBucket.$": "$.s3ReportingBucket",
+                  "maxSeconds.$": "$.analyzerTimeouts.security",
+                  "componentType": "security"
+                }
+              },
+              "TimeoutSeconds": 300,
+              "ResultPath": "$.analyzerResult",
+              "ResultSelector": {
+                "analyzerResult.$": "$.Payload"
+              },
+              "OutputPath": "$.analyzerResult",
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException"],
+                  "IntervalSeconds": 3,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.errorInfo",
+                  "Next": "SecurityFailed"
+                }
+              ],
+              "End": true
+            },
+            "SecurityFailed": {
+              "Type": "Pass",
+              "Parameters": {
+                "analyzerResult": {
+                  "componentType": "security",
+                  "status": "failed",
+                  "error.$": "$.errorInfo.Error",
+                  "cause.$": "$.errorInfo.Cause"
+                }
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "CheckResilienceEnabled",
+          "States": {
+            "CheckResilienceEnabled": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.enabledAnalyzers.resilience",
+                  "BooleanEquals": false,
+                  "Next": "ResilienceSkipped"
+                }
+              ],
+              "Default": "ResilienceAnalyzer"
+            },
+            "ResilienceSkipped": {
+              "Type": "Pass",
+              "Parameters": {
+                "analyzerResult": {
+                  "componentType": "resilience",
+                  "status": "skipped"
+                }
+              },
+              "End": true
+            },
+            "ResilienceAnalyzer": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${ResilienceAnalyzerFunctionArn}",
+                "Payload": {
+                  "reviewId.$": "$.reviewId",
+                  "instanceId.$": "$.instanceId",
+                  "instanceArn.$": "$.instanceArn",
+                  "accountId.$": "$.accountId",
+                  "awsRegion.$": "$.awsRegion",
+                  "daysBack.$": "$.daysBack",
+                  "s3ReportingBucket.$": "$.s3ReportingBucket",
+                  "maxSeconds.$": "$.analyzerTimeouts.resilience",
+                  "componentType": "resilience"
+                }
+              },
+              "TimeoutSeconds": 300,
+              "ResultPath": "$.analyzerResult",
+              "ResultSelector": {
+                "analyzerResult.$": "$.Payload"
+              },
+              "OutputPath": "$.analyzerResult",
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException"],
+                  "IntervalSeconds": 3,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.errorInfo",
+                  "Next": "ResilienceFailed"
+                }
+              ],
+              "End": true
+            },
+            "ResilienceFailed": {
+              "Type": "Pass",
+              "Parameters": {
+                "analyzerResult": {
+                  "componentType": "resilience",
+                  "status": "failed",
+                  "error.$": "$.errorInfo.Error",
+                  "cause.$": "$.errorInfo.Cause"
+                }
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "CheckCloudTrailEnabled",
+          "States": {
+            "CheckCloudTrailEnabled": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.enabledAnalyzers.cloudtrail",
+                  "BooleanEquals": false,
+                  "Next": "CloudTrailSkipped"
+                }
+              ],
+              "Default": "CloudTrailAnalyzer"
+            },
+            "CloudTrailSkipped": {
+              "Type": "Pass",
+              "Parameters": {
+                "analyzerResult": {
+                  "componentType": "cloudtrail",
+                  "status": "skipped"
+                }
+              },
+              "End": true
+            },
+            "CloudTrailAnalyzer": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${CloudTrailAnalyzerFunctionArn}",
+                "Payload": {
+                  "reviewId.$": "$.reviewId",
+                  "instanceId.$": "$.instanceId",
+                  "instanceArn.$": "$.instanceArn",
+                  "accountId.$": "$.accountId",
+                  "awsRegion.$": "$.awsRegion",
+                  "daysBack.$": "$.daysBack",
+                  "s3ReportingBucket.$": "$.s3ReportingBucket",
+                  "maxSeconds.$": "$.analyzerTimeouts.cloudtrail",
+                  "componentType": "cloudtrail"
+                }
+              },
+              "TimeoutSeconds": 900,
+              "ResultPath": "$.analyzerResult",
+              "ResultSelector": {
+                "analyzerResult.$": "$.Payload"
+              },
+              "OutputPath": "$.analyzerResult",
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException"],
+                  "IntervalSeconds": 5,
+                  "MaxAttempts": 1,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.errorInfo",
+                  "Next": "CloudTrailFailed"
+                }
+              ],
+              "End": true
+            },
+            "CloudTrailFailed": {
+              "Type": "Pass",
+              "Parameters": {
+                "analyzerResult": {
+                  "componentType": "cloudtrail",
+                  "status": "failed",
+                  "error.$": "$.errorInfo.Error",
+                  "cause.$": "$.errorInfo.Cause"
+                }
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "CheckOperationalExcellenceEnabled",
+          "States": {
+            "CheckOperationalExcellenceEnabled": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.enabledAnalyzers.operational_excellence",
+                  "BooleanEquals": false,
+                  "Next": "OperationalExcellenceSkipped"
+                }
+              ],
+              "Default": "OperationalExcellenceAnalyzer"
+            },
+            "OperationalExcellenceSkipped": {
+              "Type": "Pass",
+              "Parameters": {
+                "analyzerResult": {
+                  "componentType": "operational_excellence",
+                  "status": "skipped"
+                }
+              },
+              "End": true
+            },
+            "OperationalExcellenceAnalyzer": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${OperationalExcellenceAnalyzerFunctionArn}",
+                "Payload": {
+                  "reviewId.$": "$.reviewId",
+                  "instanceId.$": "$.instanceId",
+                  "instanceArn.$": "$.instanceArn",
+                  "accountId.$": "$.accountId",
+                  "awsRegion.$": "$.awsRegion",
+                  "daysBack.$": "$.daysBack",
+                  "s3ReportingBucket.$": "$.s3ReportingBucket",
+                  "maxSeconds.$": "$.analyzerTimeouts.operational_excellence",
+                  "componentType": "operational_excellence"
+                }
+              },
+              "TimeoutSeconds": 300,
+              "ResultPath": "$.analyzerResult",
+              "ResultSelector": {
+                "analyzerResult.$": "$.Payload"
+              },
+              "OutputPath": "$.analyzerResult",
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException"],
+                  "IntervalSeconds": 3,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.errorInfo",
+                  "Next": "OperationalExcellenceFailed"
+                }
+              ],
+              "End": true
+            },
+            "OperationalExcellenceFailed": {
+              "Type": "Pass",
+              "Parameters": {
+                "analyzerResult": {
+                  "componentType": "operational_excellence",
+                  "status": "failed",
+                  "error.$": "$.errorInfo.Error",
+                  "cause.$": "$.errorInfo.Cause"
+                }
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "CheckCapacityEnabled",
+          "States": {
+            "CheckCapacityEnabled": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.enabledAnalyzers.capacity",
+                  "BooleanEquals": false,
+                  "Next": "CapacitySkipped"
+                }
+              ],
+              "Default": "CapacityAnalyzer"
+            },
+            "CapacitySkipped": {
+              "Type": "Pass",
+              "Parameters": {
+                "analyzerResult": {
+                  "componentType": "capacity",
+                  "status": "skipped"
+                }
+              },
+              "End": true
+            },
+            "CapacityAnalyzer": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${CapacityAnalyzerFunctionArn}",
+                "Payload": {
+                  "reviewId.$": "$.reviewId",
+                  "instanceId.$": "$.instanceId",
+                  "instanceArn.$": "$.instanceArn",
+                  "accountId.$": "$.accountId",
+                  "awsRegion.$": "$.awsRegion",
+                  "daysBack.$": "$.daysBack",
+                  "s3ReportingBucket.$": "$.s3ReportingBucket",
+                  "maxSeconds.$": "$.analyzerTimeouts.capacity",
+                  "componentType": "capacity"
+                }
+              },
+              "TimeoutSeconds": 600,
+              "ResultPath": "$.analyzerResult",
+              "ResultSelector": {
+                "analyzerResult.$": "$.Payload"
+              },
+              "OutputPath": "$.analyzerResult",
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException"],
+                  "IntervalSeconds": 3,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.errorInfo",
+                  "Next": "CapacityFailed"
+                }
+              ],
+              "End": true
+            },
+            "CapacityFailed": {
+              "Type": "Pass",
+              "Parameters": {
+                "analyzerResult": {
+                  "componentType": "capacity",
+                  "status": "failed",
+                  "error.$": "$.errorInfo.Error",
+                  "cause.$": "$.errorInfo.Cause"
+                }
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "CheckObservabilityEnabled",
+          "States": {
+            "CheckObservabilityEnabled": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.enabledAnalyzers.observability",
+                  "BooleanEquals": false,
+                  "Next": "ObservabilitySkipped"
+                }
+              ],
+              "Default": "ObservabilityAnalyzer"
+            },
+            "ObservabilitySkipped": {
+              "Type": "Pass",
+              "Parameters": {
+                "analyzerResult": {
+                  "componentType": "observability",
+                  "status": "skipped"
+                }
+              },
+              "End": true
+            },
+            "ObservabilityAnalyzer": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${ObservabilityAnalyzerFunctionArn}",
+                "Payload": {
+                  "reviewId.$": "$.reviewId",
+                  "instanceId.$": "$.instanceId",
+                  "instanceArn.$": "$.instanceArn",
+                  "accountId.$": "$.accountId",
+                  "awsRegion.$": "$.awsRegion",
+                  "daysBack.$": "$.daysBack",
+                  "s3ReportingBucket.$": "$.s3ReportingBucket",
+                  "maxSeconds.$": "$.analyzerTimeouts.observability",
+                  "componentType": "observability"
+                }
+              },
+              "TimeoutSeconds": 600,
+              "ResultPath": "$.analyzerResult",
+              "ResultSelector": {
+                "analyzerResult.$": "$.Payload"
+              },
+              "OutputPath": "$.analyzerResult",
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException"],
+                  "IntervalSeconds": 3,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.errorInfo",
+                  "Next": "ObservabilityFailed"
+                }
+              ],
+              "End": true
+            },
+            "ObservabilityFailed": {
+              "Type": "Pass",
+              "Parameters": {
+                "analyzerResult": {
+                  "componentType": "observability",
+                  "status": "failed",
+                  "error.$": "$.errorInfo.Error",
+                  "cause.$": "$.errorInfo.Cause"
+                }
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "CheckCostEnabled",
+          "States": {
+            "CheckCostEnabled": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.enabledAnalyzers.cost",
+                  "BooleanEquals": false,
+                  "Next": "CostSkipped"
+                }
+              ],
+              "Default": "CostAnalyzer"
+            },
+            "CostSkipped": {
+              "Type": "Pass",
+              "Parameters": {
+                "analyzerResult": {
+                  "componentType": "cost",
+                  "status": "skipped"
+                }
+              },
+              "End": true
+            },
+            "CostAnalyzer": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${CostAnalyzerFunctionArn}",
+                "Payload": {
+                  "reviewId.$": "$.reviewId",
+                  "instanceId.$": "$.instanceId",
+                  "instanceArn.$": "$.instanceArn",
+                  "accountId.$": "$.accountId",
+                  "awsRegion.$": "$.awsRegion",
+                  "daysBack.$": "$.daysBack",
+                  "s3ReportingBucket.$": "$.s3ReportingBucket",
+                  "maxSeconds.$": "$.analyzerTimeouts.cost",
+                  "componentType": "cost"
+                }
+              },
+              "TimeoutSeconds": 300,
+              "ResultPath": "$.analyzerResult",
+              "ResultSelector": {
+                "analyzerResult.$": "$.Payload"
+              },
+              "OutputPath": "$.analyzerResult",
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException"],
+                  "IntervalSeconds": 3,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.errorInfo",
+                  "Next": "CostFailed"
+                }
+              ],
+              "End": true
+            },
+            "CostFailed": {
+              "Type": "Pass",
+              "Parameters": {
+                "analyzerResult": {
+                  "componentType": "cost",
+                  "status": "failed",
+                  "error.$": "$.errorInfo.Error",
+                  "cause.$": "$.errorInfo.Cause"
+                }
+              },
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "CheckAIEnabled",
+          "States": {
+            "CheckAIEnabled": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.enabledAnalyzers.ai",
+                  "BooleanEquals": false,
+                  "Next": "AISkipped"
+                }
+              ],
+              "Default": "AIAnalyzer"
+            },
+            "AISkipped": {
+              "Type": "Pass",
+              "Parameters": {
+                "analyzerResult": {
+                  "componentType": "ai",
+                  "status": "skipped"
+                }
+              },
+              "End": true
+            },
+            "AIAnalyzer": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${AIAnalyzerFunctionArn}",
+                "Payload": {
+                  "reviewId.$": "$.reviewId",
+                  "instanceId.$": "$.instanceId",
+                  "instanceArn.$": "$.instanceArn",
+                  "accountId.$": "$.accountId",
+                  "awsRegion.$": "$.awsRegion",
+                  "daysBack.$": "$.daysBack",
+                  "s3ReportingBucket.$": "$.s3ReportingBucket",
+                  "maxSeconds.$": "$.analyzerTimeouts.ai",
+                  "componentType": "ai"
+                }
+              },
+              "TimeoutSeconds": 600,
+              "ResultPath": "$.analyzerResult",
+              "ResultSelector": {
+                "analyzerResult.$": "$.Payload"
+              },
+              "OutputPath": "$.analyzerResult",
+              "Retry": [
+                {
+                  "ErrorEquals": ["Lambda.ServiceException", "Lambda.TooManyRequestsException"],
+                  "IntervalSeconds": 3,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.errorInfo",
+                  "Next": "AIFailed"
+                }
+              ],
+              "End": true
+            },
+            "AIFailed": {
+              "Type": "Pass",
+              "Parameters": {
+                "analyzerResult": {
+                  "componentType": "ai",
+                  "status": "failed",
+                  "error.$": "$.errorInfo.Error",
+                  "cause.$": "$.errorInfo.Cause"
+                }
+              },
+              "End": true
+            }
+          }
+        }
+      ],
+      "ResultPath": "$.analyzerResults",
+      "Next": "CheckGenerateReport"
+    },
+
+    "CheckGenerateReport": {
+      "Type": "Choice",
+      "Comment": "Evaluate generateHtmlReport flag — skip report generation for data-only mode",
+      "Choices": [
+        {
+          "Variable": "$.generateHtmlReport",
+          "BooleanEquals": false,
+          "Next": "SkipReport"
+        }
+      ],
+      "Default": "GenerateReport"
+    },
+
+    "SkipReport": {
+      "Type": "Pass",
+      "Comment": "Data-only mode — analyzers persisted results to S3, no HTML report generated",
+      "Parameters": {
+        "reviewId.$": "$.reviewId",
+        "status": "complete_data_only",
+        "generateHtmlReport": false,
+        "analyzerResults.$": "$.analyzerResults"
+      },
+      "End": true
+    },
+
+    "GenerateReport": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${ReportGeneratorFunctionArn}",
+        "Payload": {
+          "reviewId.$": "$.reviewId",
+          "instanceId.$": "$.instanceId",
+          "instanceArn.$": "$.instanceArn",
+          "accountId.$": "$.accountId",
+          "awsRegion.$": "$.awsRegion",
+          "s3ReportingBucket.$": "$.s3ReportingBucket",
+          "analyzerResults.$": "$.analyzerResults"
+        }
+      },
+      "TimeoutSeconds": 300,
+      "ResultSelector": {
+        "reportUrl.$": "$.Payload.reportUrl",
+        "reviewId.$": "$.Payload.reviewId",
+        "status.$": "$.Payload.status",
+        "analyzersSucceeded.$": "$.Payload.analyzersSucceeded",
+        "analyzersFailed.$": "$.Payload.analyzersFailed",
+        "analyzersSkipped.$": "$.Payload.analyzersSkipped"
+      },
+      "ResultPath": "$.reportResult",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException"],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 1
+        }
+      ],
+      "Next": "CheckDeleteData"
+    },
+
+    "CheckDeleteData": {
+      "Type": "Choice",
+      "Comment": "Delete JSON data only if retainJsonData=false AND report was generated",
+      "Choices": [
+        {
+          "Variable": "$.retainJsonData",
+          "BooleanEquals": true,
+          "Next": "SkipDelete"
+        }
+      ],
+      "Default": "DeleteJsonData"
+    },
+
+    "DeleteJsonData": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${DeleteJsonDataFunctionArn}",
+        "Payload": {
+          "reviewId.$": "$.reviewId",
+          "s3ReportingBucket.$": "$.s3ReportingBucket"
+        }
+      },
+      "TimeoutSeconds": 60,
+      "ResultPath": null,
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "SkipDelete",
+          "ResultPath": "$.deleteError"
+        }
+      ],
+      "Next": "SkipDelete"
+    },
+
+    "SkipDelete": {
+      "Type": "Pass",
+      "End": true
+    }
+  }
+}
